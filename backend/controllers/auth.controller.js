@@ -3,14 +3,21 @@ import bcrypt from "bcryptjs";
 import { generateTokenAndSetCookie } from "../lib/utils/generateToken.js";
 import nodemailer from "nodemailer";
 import EmailVerificationToken from "../models/email-verification-token.js";
-import path from "path";
-import { fileURLToPath } from "url";
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import passwordResetToken from "../models/password-reset-token.js";
 
 export const requestVerificationCode = async (req, res) => {
     try {
         const { email } = req.body;
+
+        const existingToken = await EmailVerificationToken.findOne({ email });
+        if (existingToken) {
+            const tokenAge = (Date.now() - existingToken.createdAt) / 1000; // Age in seconds
+            if (tokenAge < 60) {
+                return res.status(429).json({ error: `Please wait ${Math.ceil(60 - tokenAge)} seconds before requesting a new verification code` });
+            }
+            await EmailVerificationToken.deleteOne({ email });
+        }
+
 
         const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -168,6 +175,112 @@ export const login = async (req, res) => {
         res.status(500).json({ error: "Internal server error" });
     }
 }
+
+export const requestPasswordReset = async (req, res) => {
+	try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: "Email is required" });
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(400).json({ error: "No account found with this email" });
+        }
+        const existingToken = await passwordResetToken.findOne({ email });
+        if (existingToken) {
+            const tokenAge = (Date.now() - existingToken.createdAt) / 1000; // Age in seconds
+            if (tokenAge < 60) {
+                return res.status(429).json({ error: `Please wait ${Math.ceil(60 - tokenAge)} seconds before requesting a new password reset code` });
+            }
+            await passwordResetToken.deleteOne({ email });
+        }
+
+		// Create a new token
+		const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+		await passwordResetToken.create({ email, verificationCode });
+
+		// Send email
+		const transporter = nodemailer.createTransport({
+			host: "smtp-relay.brevo.com",
+			port: 587,
+			secure: false,
+			auth: {
+				user: process.env.BREVO_SMTP_HOST,
+				pass: process.env.BREVO_API_KEY,
+			},
+		});
+
+		const htmlContent = `
+			<!DOCTYPE html>
+            <html>
+                <body style="font-family: 'Times New Roman', serif; text-align: center; padding: 20px;">
+                <a href="https://why-connect.com" target="_blank">
+                    <img src="https://img.mailinblue.com/9357905/images/content_library/original/684052741512a9821e862dca.png" alt="WhyConnect Logo" style="margin-bottom: 20px; max-width: 200px;" />
+                </a>
+                <hr style="max-width: 500px; margin: 20px auto;">
+                <h2 style="font-weight: bold;">Reset your Why Connect password</h2>
+                <p style="text-align: left; max-width: 500px; margin: 0 auto; font-size: 16px;">
+                    To reset your password for your Why Connect account, use the code below:
+                </p>
+                <h3 style="margin: 20px 0;">${verificationCode}</h3>
+                <p style="text-align: left; max-width: 500px; margin: 0 auto; font-size: 16px;">
+                    This code will expire in 10 minutes. If you did not request this, please ignore this email.
+                </p>
+                <hr style="max-width: 500px; margin: 20px auto;">
+                <p style="text-align: left; max-width: 500px; margin: 0 auto; margin-top: 30px; font-size: 16px;">
+                    Thanks,<br />WhyConnect team
+                </p>
+                </body>
+            </html>`;
+
+		await transporter.sendMail({
+			from: `"Why Connect" <${process.env.BREVO_EMAIL}>`,
+			to: email,
+			subject: "Reset Your Password",
+			html: htmlContent,
+			text: `Your password reset code is: ${verificationCode}`,
+		});
+
+		res.status(200).json({ message: "Password reset code sent" });
+	} catch (err) {
+		console.error("Error in requestPasswordReset:", err);
+		res.status(500).json({ error: "Internal server error" });
+	}
+};
+
+export const resetPassword = async (req, res) => {
+	try {
+        const { email, verificationCode, newPassword } = req.body;
+        if (!email || !verificationCode || !newPassword) {
+            return res.status(400).json({ error: "Missing required fields" });
+        }
+
+		const resetToken = await passwordResetToken.findOne({ email, verificationCode });
+
+		if (!resetToken) {
+            return res.status(400).json({ error: "Invalid or expired verification code" });
+        }
+        else {
+            await passwordResetToken.deleteOne({ email, verificationCode });
+        }
+
+        // Check if the new password is strong enough
+        if(newPassword.length < 8){
+            return res.status(400).json({ error: "Password must be at least 8 characters long" });
+        }
+		// Hash new password
+		const salt = await bcrypt.genSalt(10);
+		const hashed = await bcrypt.hash(newPassword, salt);
+
+		// Update user password
+		await User.updateOne({ email }, { $set: { password: hashed } });
+
+
+		res.status(200).json({ message: "Password has been reset" });
+	} catch (err) {
+		console.error("Error in resetPassword:", err);
+		res.status(500).json({ error: "Internal server error" });
+	}
+};
 
 export const logout = async (req, res) => {
     try {

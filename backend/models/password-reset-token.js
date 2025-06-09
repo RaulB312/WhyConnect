@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const emailVerificationTokenSchema = new mongoose.Schema({
+const passwordResetTokenSchema = new mongoose.Schema({
     email: {
         type: String,
         required: true,
@@ -17,6 +17,6 @@ const emailVerificationTokenSchema = new mongoose.Schema({
     },
 });
 
-const EmailVerificationToken = mongoose.model("EmailVerificationToken", emailVerificationTokenSchema);
+const passwordResetToken = mongoose.model("passwordResetToken", passwordResetTokenSchema);
 
-export default EmailVerificationToken;
+export default passwordResetToken;
