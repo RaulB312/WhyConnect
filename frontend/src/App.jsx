@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import LoadingSpinner from "./components/common/LoadingSpinner";
 import PostPage from "./components/common/PostPage";
 import SavedPage from "./components/common/SavedPage";
+import SearchPage from "./components/common/SearchPage";
 
 function App() {
 	const { data: authUser, isLoading } = useQuery({
@@ -53,7 +54,7 @@ function App() {
 				<Route path='/profile/:username' element={authUser ? <ProfilePage /> : <Navigate to='/login' />} />
 				<Route path="/post/:id" element={<PostPage />} />
 				<Route path="/saved" element={<SavedPage />} />
-
+				<Route path="/search" element={<SearchPage />} />
 			</Routes>
 			{authUser && <RightPanel />}
 			<Toaster />

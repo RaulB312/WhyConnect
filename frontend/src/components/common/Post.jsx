@@ -75,6 +75,7 @@ const Post = ({ post }) => {
           p._id === post._id ? { ...p, likes: updatedLikes } : p
         );
       });
+       queryClient.invalidateQueries({ queryKey: ['search'], predicate: (query) => query.queryKey[0] === 'search' });
     },
     onError: (error) => {
       toast.error(error.message);
