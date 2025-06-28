@@ -52,9 +52,9 @@ function App() {
 				<Route path='/signup' element={!authUser ? <SignUpPage /> : <Navigate to='/' />} />
 				<Route path='/notifications' element={authUser ? <NotificationPage /> : <Navigate to='/login' />} />
 				<Route path='/profile/:username' element={authUser ? <ProfilePage /> : <Navigate to='/login' />} />
-				<Route path="/post/:id" element={<PostPage />} />
-				<Route path="/saved" element={<SavedPage />} />
-				<Route path="/search" element={<SearchPage />} />
+				<Route path="/post/:id" element={authUser ? <PostPage/> : <Navigate to='/login' />} />
+				<Route path="/saved" element={authUser ? <SavedPage/> : <Navigate to='/login' />} />
+				<Route path="/search" element={authUser ? <SearchPage/> : <Navigate to='/login' />} />
 			</Routes>
 			{authUser && <RightPanel />}
 			<Toaster />

@@ -7,8 +7,8 @@ import PostSkeleton from "../skeletons/RightPanelSkeleton";
 const SearchPage = () => {
   const [query, setQuery] = useState('');
   const [text, setText] = useState('');
-  const [userSkip, setUserSkip] = useState(0);
-  const [postSkip, setPostSkip] = useState(0);
+  const [userPage, setUserPage] = useState(1);
+  const [postPage, setPostPage] = useState(1);
   const [allUsers, setAllUsers] = useState([]);
   const [allPosts, setAllPosts] = useState([]);
   const USER_LIMIT = 5;
@@ -17,17 +17,17 @@ const SearchPage = () => {
   const handleSubmit = (e) => {
     e.preventDefault();
     setQuery(text.trim());
-    setUserSkip(0);
-    setPostSkip(0);
+    setUserPage(1);
+    setPostPage(1);
     setAllUsers([]);
     setAllPosts([]);
   };
 
   const { data: results, isLoading, error } = useQuery({
-    queryKey: ['search', query, userSkip, postSkip],
+    queryKey: ['search', query, userPage, postPage],
     queryFn: async () => {
       const res = await fetch(
-        `/api/search?query=${encodeURIComponent(query)}&userSkip=${userSkip}&userLimit=${USER_LIMIT}&postSkip=${postSkip}&postLimit=${POST_LIMIT}`
+        `/api/search?query=${encodeURIComponent(query)}&userPage=${userPage}&postPage=${postPage}`
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Search failed');
@@ -39,28 +39,25 @@ const SearchPage = () => {
   useEffect(() => {
     if (results) {
       setAllUsers((prev) => {
-        const newUsers = userSkip === 0 ? results.users : [...prev, ...results.users];
-        const uniqueUsers = Array.from(
-          new Map(newUsers.map((user) => [user._id, user])).values()
-        );
+        const newUsers = userPage === 1 ? results.users : [...prev, ...results.users];
+        const uniqueUsers = Array.from(new Map(newUsers.map((user) => [user._id, user])).values());
         return uniqueUsers;
       });
+
       setAllPosts((prev) => {
-        const newPosts = postSkip === 0 ? results.posts : [...prev, ...results.posts];
-        const uniquePosts = Array.from(
-          new Map(newPosts.map((post) => [post._id, post])).values()
-        );
+        const newPosts = postPage === 1 ? results.posts : [...prev, ...results.posts];
+        const uniquePosts = Array.from(new Map(newPosts.map((post) => [post._id, post])).values());
         return uniquePosts;
       });
     }
-  }, [results, userSkip, postSkip]);
+  }, [results, userPage, postPage]);
 
   const handleMoreUsers = () => {
-    setUserSkip((prev) => prev + USER_LIMIT);
+    setUserPage((prev) => prev + 1);
   };
 
   const handleMorePosts = () => {
-    setPostSkip((prev) => prev + POST_LIMIT);
+    setPostPage((prev) => prev + 1);
   };
 
   return (

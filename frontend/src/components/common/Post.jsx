@@ -59,12 +59,7 @@ const Post = ({ post }) => {
       }
     },
     onSuccess: (updatedLikes) => {
-      queryClient.setQueryData(["posts"], (oldData) => {
-        if (!oldData) return oldData;
-        return oldData.map((p) =>
-          p._id === post._id ? { ...p, likes: updatedLikes } : p
-        );
-      });
+      queryClient.invalidateQueries({ queryKey: ["posts"] });
       queryClient.setQueryData(["post", post._id], (oldPost) => {
         if (!oldPost) return oldPost;
         return { ...oldPost, likes: updatedLikes };
@@ -130,14 +125,12 @@ const Post = ({ post }) => {
     toast.success(isSaved ? "Post unsaved" : "Post saved successfully");
     // Update authUser cache (for savedPosts array)
     queryClient.invalidateQueries({ queryKey: ["authUser"] });
-
     // Remove from saved posts cache if on the saved posts page
     queryClient.setQueryData(["saved-posts"], (oldData) => {
       if (!oldData) return oldData;
       return oldData.filter((p) => p._id !== post._id);
     });
-
-    // Optional: Update feed so bookmark icon reflects saved state
+    // Update feed so bookmark icon reflects saved state
     queryClient.invalidateQueries({ queryKey: ["posts"] });
   },
   onError: (error) => {

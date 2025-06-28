@@ -2,10 +2,11 @@ import User from "../models/user.model.js";
 import Post from "../models/post.model.js";
 import { v2 as cloudinary } from "cloudinary";
 import Notification from "../models/notification.model.js";
-import { handleMentions } from "../utils/mentions.js";
+import { extractMentions } from "../utils/mentions.js";
+import { tagRateLimiter } from "../middleware/rateLimiter.js";
 export const createPost = async (req, res) => {
     try {
-        const { text } = req.body;
+        const { text } = req.body; // add 1000 character limit
         let { img } = req.body;
         const userId = req.user._id.toString();
 
@@ -23,10 +24,6 @@ export const createPost = async (req, res) => {
             img = uploadedResponse.secure_url;
         }
 
-        //if (text) {
-            //await handleMentions({ text, userId, isComment: false });
-        //}
-
         const newPost = new Post({
             text,
             img,
@@ -35,8 +32,33 @@ export const createPost = async (req, res) => {
 
         await newPost.save();
 
+        // Process mentions only if text exists and contains @
+        let mentions = [];
+        if (text && text.includes('@')) {
+            const mentionedUsernames = extractMentions(text);
+            const mentionedUsers = await User.find({ username: { $in: mentionedUsernames } });
+            
+            mentions = await Promise.all(
+                mentionedUsers.map(async (mentionedUser) => {
+                    if (mentionedUser._id.toString() !== userId) {
+                        const notification = new Notification({
+                            from: userId,
+                            to: mentionedUser._id,
+                            type: "tag"
+                        });
+                        await notification.save();
+                        return mentionedUser.username;
+                    }
+                    return null;
+                })
+            ).then(results => results.filter(Boolean));
+        }
         
-        res.status(201).json(newPost);
+        res.status(201).json({
+            post: newPost,
+            mentionsProcessed: mentions.length,
+            mentions
+        });
 
     } catch (error) {
         console.log("Error in createPost: ", error.message);
@@ -75,6 +97,15 @@ export const commentOnPost = async (req, res) => {
         const postId = req.params.id;
         const userId = req.user._id;
 
+        // Rate limit check
+        if (req.rateLimit && req.rateLimit.remaining <= 0) {
+            return res.status(429).json({
+                error: "Tagging rate limit reached. Your comment was posted but no tags were processed.",
+                limit: req.rateLimit.limit,
+                remaining: req.rateLimit.remaining
+            });
+        }
+
         if(!text) {
             return res.status(400).json({error: "Text field is required"});
         }
@@ -90,9 +121,40 @@ export const commentOnPost = async (req, res) => {
 
         post.comments.push(comment);
         await post.save();
-        // Handle mentions and notifications
-        //await handleMentions({ text, userId, postId, isComment: true });
-        res.status(200).json(post);
+
+        // Process mentions
+        let mentions = [];
+        if (req.rateLimit?.remaining > 0) {
+            const mentionedUsernames = extractMentions(text);
+            const mentionedUsers = await User.find({ username: { $in: mentionedUsernames } });
+            
+            mentions = await Promise.all(
+                mentionedUsers.map(async (mentionedUser) => {
+                    if (mentionedUser._id.toString() !== userId.toString()) {
+                        const notification = new Notification({
+                            from: userId,
+                            to: mentionedUser._id,
+                            type: "tag"
+                        });
+                        await notification.save();
+                        return mentionedUser.username;
+                    }
+                    return null;
+                })
+            ).then(results => results.filter(Boolean));
+        }
+
+        res.status(200).json({
+            post,
+            mentionsProcessed: mentions.length,
+            rateLimit: {
+                remaining: req.rateLimit.remaining - mentions.length,
+                limit: req.rateLimit.limit
+            },
+            warning: mentions.length === 0 && text.includes('@')
+                ? "No mentions were processed (rate limit reached or invalid usernames)"
+                : undefined
+        });
 
     } catch (error) {
         console.log("Error in commentOnPost: ", error.message);
@@ -227,77 +289,113 @@ export const likeComment = async (req, res) => {
 
 
 export const getAllPosts = async (req, res) => {
-    try {
-        const posts = await Post.find().sort({createdAt: -1}).populate({
-            path: "user",
-            select: "-password"
-        })
-        .populate({
-            path: "comments.user",
-            select: "-password"
-        });
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const cursor = req.query.cursor;
 
-        if (posts.length === 0) {
-            return res.status(200).json([]);
-        }
-
-        res.status(200).json(posts);
-
-    } catch (error) {
-        console.log("Error in getAllPosts: ", error.message);
-        res.status(500).json({error: error.message});
+    // Build query condition
+    const query = {};
+    if (cursor) {
+      query._id = { $lt: cursor }; // Only fetch posts older than the cursor
     }
+
+    const posts = await Post.find(query)
+      .sort({ _id: -1 }) // Sort newest first
+      .limit(limit)
+      .populate({
+        path: "user",
+        select: "username fullName profileImg"
+      })
+      .populate("comments.user", "username fullName profileImg");
+
+    res.status(200).json(posts || []);
+
+  } catch (error) {
+    console.error("Error in getAllPosts:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
 };
+
 
 export const getLikedPosts = async (req, res) => {
     const userId = req.params.id;
     try {
         const user = await User.findById(userId);
         if (!user) {
-            return res.status(404).json({error: "User not found"});
+            return res.status(404).json({ error: "User not found" });
         }
 
-        const likedPosts = await Post.find({ _id: { $in: user.likedPosts } }).populate({
-            path: "user",
-            select: "-password"
-        }).populate({
-            path: "comments.user",
-            select: "-password"
-        });
+        const limit = parseInt(req.query.limit) || 10;
+        const cursor = req.query.cursor;
+
+        const query = {
+            _id: { $in: user.likedPosts }
+        };
+
+        if (cursor) {
+            query._id = { $lt: cursor };
+        }
+
+        const likedPosts = await Post.find(query)
+            .sort({ _id: -1 })
+            .limit(limit)
+            .populate({
+                path: "user",
+                select: "-password"
+            })
+            .populate({
+                path: "comments.user",
+                select: "-password"
+            });
 
         res.status(200).json(likedPosts);
     } catch (error) {
         console.log("Error in getLikedPosts: ", error.message);
-        res.status(500).json({error: error.message});
+        res.status(500).json({ error: error.message });
     }
 };
+
 
 export const getFollowingPosts = async (req, res) => {
     try {
         const userId = req.user._id;
         const user = await User.findById(userId);
         if (!user) {
-            return res.status(404).json({error: "User not found"});
+            return res.status(404).json({ error: "User not found" });
         }
 
         const following = user.following;
 
-        const feedPosts = await Post.find({ user: { $in: following } })
-        .sort({ createdAt: -1 }).populate({
-            path: "user",
-            select: "-password"
-        })
-        .populate({
-            path: "comments.user",
-            select: "-password"
-        });
+        const limit = parseInt(req.query.limit) || 10;
+        const cursor = req.query.cursor;
+
+        const query = {
+            user: { $in: following }
+        };
+
+        if (cursor) {
+            query._id = { $lt: cursor };
+        }
+
+        const feedPosts = await Post.find(query)
+            .sort({ _id: -1 })
+            .limit(limit)
+            .populate({
+                path: "user",
+                select: "-password"
+            })
+            .populate({
+                path: "comments.user",
+                select: "-password"
+            });
 
         res.status(200).json(feedPosts);
     } catch (error) {
         console.log("Error in getFollowingPosts: ", error.message);
-        res.status(500).json({error: error.message});
+        res.status(500).json({ error: error.message });
     }
 };
+
 
 export const getUserPosts = async (req, res) => {
     try {
@@ -305,24 +403,37 @@ export const getUserPosts = async (req, res) => {
 
         const user = await User.findOne({ username });
         if (!user) {
-            return res.status(404).json({error: "User not found"});
+            return res.status(404).json({ error: "User not found" });
         }
 
-        const posts = await Post.find({ user: user._id }).sort({ createdAt: -1 }).populate({
-            path: "user",
-            select: "-password"
-        })
-        .populate({
-            path: "comments.user",
-            select: "-password"
-        });
+        const limit = parseInt(req.query.limit) || 10;
+        const cursor = req.query.cursor;
+
+        const query = { user: user._id };
+
+        if (cursor) {
+            query._id = { $lt: cursor };
+        }
+
+        const posts = await Post.find(query)
+            .sort({ _id: -1 })
+            .limit(limit)
+            .populate({
+                path: "user",
+                select: "-password"
+            })
+            .populate({
+                path: "comments.user",
+                select: "-password"
+            });
 
         res.status(200).json(posts);
     } catch (error) {
         console.log("Error in getUserPosts: ", error.message);
-        res.status(500).json({error: error.message});
+        res.status(500).json({ error: error.message });
     }
 };
+
 
 export const getPostById = async (req, res) => {
   try {

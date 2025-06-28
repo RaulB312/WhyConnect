@@ -81,20 +81,21 @@ const SignUpPage = () => {
 						{step === 1 ? "Join today." : "Verify & Finish"}
 					</h1>
 
-					<label className="input input-bordered rounded flex items-center gap-2">
-						<MdOutlineMail />
-						<input
-							type="email"
-							placeholder="Email"
-							name="email"
-							onChange={handleChange}
-							value={formData.email}
-							required
-						/>
-					</label>
+					
 
 					{step === 1 && (
 						<>
+							<label className="input input-bordered rounded flex items-center gap-2">
+									<MdOutlineMail />
+									<input
+										type="email"
+										placeholder="Email"
+										name="email"
+										onChange={handleChange}
+										value={formData.email}
+										required
+									/>
+							</label>
 							<div className="flex gap-4 flex-wrap">
 								<label className="input input-bordered rounded flex items-center gap-2 flex-1">
 									<FaUser />

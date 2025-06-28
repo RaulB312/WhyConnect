@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 
-// Define a subdocument schema for comments with timestamps
 const commentSchema = new mongoose.Schema(
   {
     text: {
@@ -20,11 +19,10 @@ const commentSchema = new mongoose.Schema(
     ],
   },
   {
-    timestamps: true // This adds createdAt and updatedAt to each comment
+    timestamps: true
   }
 );
 
-// Define the main post schema
 const postSchema = new mongoose.Schema(
   {
     user: {
@@ -44,10 +42,10 @@ const postSchema = new mongoose.Schema(
         ref: "User"
       }
     ],
-    comments: [commentSchema] // Use the subdocument schema here
+    comments: [commentSchema]
   },
   {
-    timestamps: true // Adds createdAt and updatedAt to posts
+    timestamps: true
   }
 );
 

@@ -103,20 +103,24 @@ export const signup = async (req, res) => {
         if (!emailVerificationToken) {
             return res.status(400).json({ error: "Invalid or expired verification code" });
         }
-        else {
-            await EmailVerificationToken.deleteOne({ email, verificationCode });
-        }
 
         if(password.length < 8){
             return res.status(400).json({ error: "Password must be at least 8 characters long" });
         }
 
-        // make sure the password is strong capital, small letters, numbers, and special characters
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
 
-        //hash the password
+        if (!passwordRegex.test(password)) {
+            return res.status(400).json({
+                error: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)"
+            });
+        }
+
 
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
+
+        await EmailVerificationToken.deleteOne({ email, verificationCode });
 
         const newUser = new User({
             fullName,
@@ -259,9 +263,6 @@ export const resetPassword = async (req, res) => {
 		if (!resetToken) {
             return res.status(400).json({ error: "Invalid or expired verification code" });
         }
-        else {
-            await passwordResetToken.deleteOne({ email, verificationCode });
-        }
 
         // Check if the new password is strong enough
         if(newPassword.length < 8){
@@ -274,6 +275,7 @@ export const resetPassword = async (req, res) => {
 		// Update user password
 		await User.updateOne({ email }, { $set: { password: hashed } });
 
+        await passwordResetToken.deleteOne({ email, verificationCode });
 
 		res.status(200).json({ message: "Password has been reset" });
 	} catch (err) {
